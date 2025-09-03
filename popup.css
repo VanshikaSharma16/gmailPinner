@@ -35,6 +35,25 @@ body {
     font-size: 24px;
 }
 
+.controls {
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.refresh-btn {
+    background-color: #1a73e8;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.refresh-btn:hover {
+    background-color: #1967d2;
+}
+
 .pinned-emails {
     margin-bottom: 20px;
 }
