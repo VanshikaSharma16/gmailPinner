@@ -1,20 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "Gmail Pinner",
+  "name": "Gmail Pin Extension",
   "version": "1.0",
-  "description": "Pin important emails to the top of your Gmail inbox.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "description": "Pin important emails in Gmail",
+  "permissions": ["storage", "activeTab"],
   "host_permissions": ["https://mail.google.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Gmail Pin"
+  },
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "js": ["content.js"]
     }
   ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "View Pinned Emails"
+  "background": {
+    "service_worker": "background.js"
   },
   "icons": {
     "16": "icons/icon16.png",

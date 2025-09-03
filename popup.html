@@ -1,14 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail Pin</title>
     <link rel="stylesheet" href="popup.css">
 </head>
 <body>
     <div class="container">
-        <h2>Pinned Emails</h2>
-        <div id="message">Loading pinned emails...</div>
+        <div class="header">
+            <div class="icon">📌</div>
+            <h1>Gmail Pin</h1>
+        </div>
+        
+        <div class="pinned-emails">
+            <h2>Pinned Emails (Max: 5)</h2>
+            <div class="email-list" id="pinnedEmailsList">
+                <div class="empty-state">No emails pinned yet</div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>How to use:</h3>
+            <ul>
+                <li>Open Gmail in your browser</li>
+                <li>Look for the pin icon next to each email</li>
+                <li>Click the pin icon to pin an email (max 5)</li>
+                <li>Pinned emails will stay at the top even after refresh</li>
+                <li>Click the unpin button to remove from pinned list</li>
+            </ul>
+        </div>
+        
+        <div class="footer">
+            Refresh Gmail after installing this extension
+        </div>
     </div>
+
     <script src="popup.js"></script>
 </body>
 </html>
