@@ -12,58 +12,36 @@ function addPinButtons() {
     const topPins = 3;
 
     emailRows.forEach(row => {
-        // Skip if this row already has a pin button
-        if (row.querySelector('.pin-container')) return;
+        if (row.querySelector('.pin-btn')) return;
         
         const emailId = row.getAttribute('data-message-id') || row.id || Math.random().toString(36).substring(2);
-        
-        // Create pin container outside the email row
-        const pinContainer = document.createElement('div');
-        pinContainer.className = 'pin-container';
-        pinContainer.style.position = 'absolute';
-        pinContainer.style.left = '-40px';
-        pinContainer.style.top = '50%';
-        pinContainer.style.transform = 'translateY(-50%)';
-        
         const pinButton = document.createElement('button');
         pinButton.className = 'pin-btn';
         pinButton.innerHTML = '📌';
         pinButton.style.cursor = 'pointer';
-        pinButton.style.background = 'none';
-        pinButton.style.border = 'none';
-        pinButton.style.fontSize = '16px';
-        pinButton.style.width = '32px';
-        pinButton.style.height = '32px';
-        pinButton.style.borderRadius = '50%';
-        pinButton.style.display = 'flex';
-        pinButton.style.alignItems = 'center';
-        pinButton.style.justifyContent = 'center';
+        pinButton.style.marginRight = '10px';
         pinButton.title = 'Pin Email';
-        
-        pinContainer.appendChild(pinButton);
-        
-        // Position the row relatively so we can position the pin absolutely
-        row.style.position = 'relative';
-        
-        // Insert pin container before the row
-        row.parentNode.insertBefore(pinContainer, row);
-        
+
         // Check if this email is already pinned
         chrome.storage.local.get(['pinnedEmails'], function(result) {
             const pinnedEmails = result.pinnedEmails || [];
             if (pinnedEmails.includes(emailId)) {
                 pinButton.classList.add('pinned');
                 pinButton.style.color = '#1a73e8';
-                pinButton.style.backgroundColor = '#e8f0fe';
                 row.classList.add('pinned');
                 
-                // Add to top if it's one of the first 3 pins
                 if (pinnedEmails.indexOf(emailId) < topPins) {
                     row.classList.add('pinned-top');
                 }
             }
         });
 
+        const firstCell = row.querySelector('td');
+        if (firstCell) {
+            firstCell.prepend(pinButton);
+        }
+
+        // FIXED: Changed addEventListner to addEventListener
         pinButton.addEventListener('click', async () => {
             const result = await chrome.storage.local.get(['pinnedEmails']);
             const pinnedEmails = result.pinnedEmails || [];
@@ -75,7 +53,6 @@ function addPinButtons() {
                 await chrome.storage.local.set({pinnedEmails: pinnedEmails});
                 pinButton.classList.remove('pinned');
                 pinButton.style.color = '';
-                pinButton.style.backgroundColor = '';
                 row.classList.remove('pinned', 'pinned-top');
                 reorderPinnedEmails(topPins);
                 return;
@@ -92,14 +69,13 @@ function addPinButtons() {
             await chrome.storage.local.set({pinnedEmails: pinnedEmails});
             pinButton.classList.add('pinned');
             pinButton.style.color = '#1a73e8';
-            pinButton.style.backgroundColor = '#e8f0fe';
             row.classList.add('pinned');
             reorderPinnedEmails(topPins);
         });
     });
 }
 
-// Function to show custom popup message
+// Custom popup display function
 function showCustomPopup(message) {
     // Remove any existing popup
     const existingPopup = document.getElementById('custom-popup');
@@ -160,9 +136,6 @@ function reorderPinnedEmails(topPins) {
         const parent = emailRows[0]?.parentNode;
         if (!parent) return;
         
-        // Also get all pin containers
-        const pinContainers = document.querySelectorAll('.pin-container');
-        
         // Reorder the emails: first top pinned, then other pinned, then normal
         pinnedRows.forEach((row, index) => {
             if (index < topPins) {
@@ -170,29 +143,11 @@ function reorderPinnedEmails(topPins) {
             } else {
                 row.classList.remove('pinned-top');
             }
-            
-            // Find the corresponding pin container
-            const pinContainer = Array.from(pinContainers).find(container => 
-                container.nextElementSibling === row
-            );
-            
-            // Move both the pin container and the row
-            if (pinContainer) {
-                parent.insertBefore(pinContainer, parent.firstChild);
-            }
-            parent.insertBefore(row, parent.firstChild);
+            parent.appendChild(row);
         });
         
         // Append normal emails
         normalRows.forEach(row => {
-            // Find the corresponding pin container
-            const pinContainer = Array.from(pinContainers).find(container => 
-                container.nextElementSibling === row
-            );
-            
-            if (pinContainer) {
-                parent.appendChild(pinContainer);
-            }
             parent.appendChild(row);
         });
     });
