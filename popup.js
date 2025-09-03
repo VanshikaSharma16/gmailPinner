@@ -35,13 +35,16 @@ function loadPinnedEmails() {
         }
         
         emailList.innerHTML = '';
-        pinnedEmails.forEach((email, index) => {
+        
+        // Show pinned emails in order (newest first)
+        pinnedEmails.slice().reverse().forEach((email, index) => {
             const emailItem = document.createElement('div');
             emailItem.className = 'email-item';
             emailItem.innerHTML = `
                 <div class="email-info">
                     <div class="email-subject" title="${escapeHtml(email.subject)}">${escapeHtml(email.subject)}</div>
                     <div class="email-sender">From: ${escapeHtml(email.sender)}</div>
+                    <div class="email-time">Pinned: ${formatTime(email.timestamp)}</div>
                 </div>
                 <button class="unpin-btn" data-id="${escapeHtml(email.id)}">Unpin</button>
             `;
@@ -90,4 +93,9 @@ function escapeHtml(unsafe) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

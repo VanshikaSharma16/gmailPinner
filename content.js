@@ -79,6 +79,17 @@
             opacity: 1 !important;
             pointer-events: auto !important;
         }
+        
+        /* Highlight pinned emails */
+        .pinned-email-highlight {
+            background-color: #fce8e6 !important;
+            border-left: 3px solid #ea4335 !important;
+        }
+        
+        /* Make sure pinned emails stay at the top */
+        .pinned-email-container {
+            order: -1 !important;
+        }
     `;
     document.head.appendChild(styleElement);
 
@@ -96,23 +107,31 @@
         chrome.runtime.onMessage.addListener(handleMessage);
     }
 
-    // Load pinned emails
+    // Load pinned emails from storage
     function loadPinnedEmails() {
         chrome.storage.local.get(['pinnedEmails'], function(result) {
             pinnedEmails = result.pinnedEmails || [];
+            // Sort by timestamp to maintain order
+            pinnedEmails.sort((a, b) => a.timestamp - b.timestamp);
             processEmails();
+            
+            // Reorder pinned emails to top on initial load
+            setTimeout(reorderPinnedEmails, 1000);
         });
     }
 
-    // Save pinned emails
+    // Save pinned emails to storage
     function savePinnedEmails() {
+        // Sort by timestamp before saving
+        pinnedEmails.sort((a, b) => a.timestamp - b.timestamp);
         chrome.storage.local.set({pinnedEmails: pinnedEmails});
     }
 
-    // Handle messages
+    // Handle messages from popup
     function handleMessage(request, sender, sendResponse) {
         if (request.action === "emailUnpinned") {
-            unpinEmailById(request.emailId);
+            const emailId = request.emailId;
+            unpinEmailById(emailId);
             return true;
         }
         if (request.action === "updateRequested") {
@@ -121,7 +140,7 @@
         }
     }
 
-    // Find email rows
+    // Find all email rows in Gmail
     function findEmailRows() {
         // Try multiple selectors for different Gmail layouts
         const selectors = [
@@ -143,7 +162,7 @@
         return rows;
     }
 
-    // Process all emails
+    // Process all emails and add pin icons
     function processEmails() {
         const emailRows = findEmailRows();
         
@@ -151,6 +170,7 @@
             // Skip if already processed
             if (row.hasAttribute('data-pin-processed')) {
                 updatePinIcon(row);
+                updateEmailHighlight(row);
                 return;
             }
             
@@ -174,13 +194,16 @@
             
             // Add pin icon
             addPinIcon(row, emailId);
+            
+            // Update highlight based on pin status
+            updateEmailHighlight(row);
         });
         
         // Reorder pinned emails to top
         reorderPinnedEmails();
     }
 
-    // Generate email ID
+    // Generate a unique ID for an email
     function generateEmailId(row) {
         const subject = row.querySelector('[data-tooltip]')?.textContent || 
                        row.querySelector('[aria-label]')?.getAttribute('aria-label') || 
@@ -230,14 +253,9 @@
         
         // Add to container
         pinContainer.appendChild(pinIcon);
-        
-        // Force the row to have proper layout
-        if (!row.classList.contains('email-row-with-pin')) {
-            row.classList.add('email-row-with-pin');
-        }
     }
 
-    // Update pin icon state
+    // Update pin icon visual state
     function updatePinIconState(pinIcon, emailId) {
         const isPinned = pinnedEmails.some(email => email.id === emailId);
         if (isPinned) {
@@ -256,6 +274,24 @@
         }
     }
 
+    // Update email highlight based on pin status
+    function updateEmailHighlight(row) {
+        const emailId = row.getAttribute('data-email-id');
+        const isPinned = pinnedEmails.some(email => email.id === emailId);
+        
+        if (isPinned) {
+            row.classList.add('pinned-email-highlight');
+            if (row.parentElement) {
+                row.parentElement.classList.add('pinned-email-container');
+            }
+        } else {
+            row.classList.remove('pinned-email-highlight');
+            if (row.parentElement) {
+                row.parentElement.classList.remove('pinned-email-container');
+            }
+        }
+    }
+
     // Toggle email pin state
     function togglePinEmail(row, emailId) {
         const index = pinnedEmails.findIndex(email => email.id === emailId);
@@ -266,8 +302,15 @@
         } else {
             // Pin the email (if under limit)
             if (pinnedEmails.length >= MAX_PINS) {
-                alert(`You can only pin up to ${MAX_PINS} emails. Unpin one first to pin this email.`);
-                return;
+                // Remove the oldest pinned email
+                const oldestPin = pinnedEmails.shift();
+                
+                // Find and unpin the oldest email visually
+                const oldestRow = findEmailRowById(oldestPin.id);
+                if (oldestRow) {
+                    updatePinIcon(oldestRow);
+                    updateEmailHighlight(oldestRow);
+                }
             }
             
             // Get email details
@@ -288,10 +331,18 @@
         
         // Save and update UI
         savePinnedEmails();
-        processEmails();
+        updatePinIcon(row);
+        updateEmailHighlight(row);
+        reorderPinnedEmails();
         
         // Notify popup
         chrome.runtime.sendMessage({action: "updatePopup"});
+    }
+
+    // Find email row by ID
+    function findEmailRowById(emailId) {
+        const emailRows = findEmailRows();
+        return emailRows.find(row => row.getAttribute('data-email-id') === emailId);
     }
 
     // Unpin email by ID
@@ -304,32 +355,53 @@
         }
     }
 
-    // Reorder emails to put pinned ones at the top
+    // Reorder emails to put pinned ones at the top in correct order
     function reorderPinnedEmails() {
         const emailRows = findEmailRows();
         const pinnedIds = pinnedEmails.map(email => email.id);
         
         // Get the container that holds all emails
-        const container = document.querySelector('div[role="main"]') || 
-                         document.querySelector('div[gh="tl"]') || 
-                         document.body;
+        const emailContainer = findEmailContainer();
+        if (!emailContainer) return;
         
-        if (!container) return;
-        
-        // Collect pinned rows
-        const pinnedRows = emailRows.filter(row => {
-            const emailId = row.getAttribute('data-email-id');
-            return pinnedIds.includes(emailId);
+        // Collect pinned rows and their containers in the correct order
+        const pinnedContainers = [];
+        pinnedIds.forEach(emailId => {
+            const row = emailRows.find(row => row.getAttribute('data-email-id') === emailId);
+            if (row) {
+                const container = row.closest('.email-row-container') || row.parentElement;
+                pinnedContainers.push(container);
+            }
         });
         
-        // Move pinned rows to top
-        pinnedRows.forEach(row => {
-            const wrapper = row.closest('.email-row-container') || row.parentElement;
-            container.insertBefore(wrapper, container.firstChild);
+        // Move pinned containers to top in correct order
+        pinnedContainers.reverse().forEach(container => {
+            if (container && container.parentElement === emailContainer) {
+                emailContainer.insertBefore(container, emailContainer.firstChild);
+            }
         });
     }
 
-    // Start MutationObserver
+    // Find the container that holds all emails
+    function findEmailContainer() {
+        const selectors = [
+            'div[role="main"] > div > div > div:last-child',
+            'div[gh="tl"] > div:last-child',
+            'div[role="main"] > div:last-child',
+            'table[role="grid"]'
+        ];
+        
+        for (const selector of selectors) {
+            const container = document.querySelector(selector);
+            if (container) {
+                return container;
+            }
+        }
+        
+        return document.body;
+    }
+
+    // Start MutationObserver to detect new emails
     function startObserver() {
         const targetNode = document.querySelector('div[role="main"]') || document.body;
         
