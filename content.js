@@ -20,7 +20,7 @@ function injectPinIcons() {
         pinIcon.innerHTML = '📌';
         pinIcon.style.cssText = `
             cursor: pointer;
-            margin-right: 8px;
+            margin-right: -8px;
             display: inline-block;
             font-size: 16px;
         `;
