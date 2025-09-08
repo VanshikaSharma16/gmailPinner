@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
     <title>Gmail Pin</title>
-    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
     <div class="container">
@@ -12,34 +11,27 @@
             <div class="icon">📌</div>
             <h1>Gmail Pin</h1>
         </div>
-        
         <div class="controls">
             <button id="refreshButton" class="refresh-btn">Refresh</button>
         </div>
-        
         <div class="pinned-emails">
             <h2>Pinned Emails (Max: 5)</h2>
-            <div class="email-list" id="pinnedEmailsList">
+            <div id="pinnedEmailsList" class="email-list">
                 <div class="empty-state">No emails pinned yet</div>
             </div>
         </div>
-        
         <div class="instructions">
             <h3>How to use:</h3>
             <ul>
                 <li>Open Gmail in your browser</li>
-                <li>Look for the pin icon next to each email</li>
-                <li>Click the pin icon to pin an email (max 5)</li>
-                <li>Pinned emails will stay at the top even after refresh</li>
-                <li>Click the unpin button to remove from pinned list</li>
+                <li>Click the 📌 icon next to an email to pin it</li>
+                <li>You can pin up to 5 emails</li>
+                <li>Pinned emails stay at the top</li>
+                <li>Click Unpin to remove</li>
             </ul>
         </div>
-        
-        <div class="footer">
-            Refresh Gmail after installing this extension
-        </div>
+        <div class="footer">Refresh Gmail after installing this extension</div>
     </div>
-
     <script src="popup.js"></script>
 </body>
 </html>

@@ -1,46 +1,39 @@
-document.addEventListener('DOMContentLoaded', function() {
-    loadPinnedEmails();
-    
-    // Add refresh button functionality
+document.addEventListener('DOMContentLoaded', () => {
+    loadPinnedEmailsPopup();
+
     const refreshButton = document.getElementById('refreshButton');
     if (refreshButton) {
-        refreshButton.addEventListener('click', function() {
-            chrome.tabs.query({url: "*://mail.google.com/*"}, function(tabs) {
+        refreshButton.addEventListener('click', () => {
+            chrome.tabs.query({url: "*://mail.google.com/*"}, (tabs) => {
                 if (tabs.length > 0) {
-                    chrome.tabs.sendMessage(tabs[0].id, {
-                        action: "updateRequested"
-                    });
+                    chrome.tabs.sendMessage(tabs[0].id, {action: "updateRequested"});
                 }
-                loadPinnedEmails();
             });
+            loadPinnedEmailsPopup();
         });
     }
-    
-    // Listen for messages from content script
-    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.action === "updatePopup") {
-            loadPinnedEmails();
+            loadPinnedEmailsPopup();
         }
     });
 });
 
-function loadPinnedEmails() {
-    chrome.storage.local.get(['pinnedEmails'], function(result) {
+function loadPinnedEmailsPopup() {
+    chrome.storage.local.get(['pinnedEmails'], (result) => {
         const pinnedEmails = result.pinnedEmails || [];
         const emailList = document.getElementById('pinnedEmailsList');
-        
+        if (!emailList) return;
         if (pinnedEmails.length === 0) {
             emailList.innerHTML = '<div class="empty-state">No emails pinned yet</div>';
             return;
         }
-        
         emailList.innerHTML = '';
-        
-        // Show pinned emails in order (newest first)
-        pinnedEmails.slice().reverse().forEach((email, index) => {
-            const emailItem = document.createElement('div');
-            emailItem.className = 'email-item';
-            emailItem.innerHTML = `
+        pinnedEmails.slice().reverse().forEach((email) => {
+            const item = document.createElement('div');
+            item.className = 'email-item';
+            item.innerHTML = `
                 <div class="email-info">
                     <div class="email-subject" title="${escapeHtml(email.subject)}">${escapeHtml(email.subject)}</div>
                     <div class="email-sender">From: ${escapeHtml(email.sender)}</div>
@@ -48,10 +41,9 @@ function loadPinnedEmails() {
                 </div>
                 <button class="unpin-btn" data-id="${escapeHtml(email.id)}">Unpin</button>
             `;
-            emailList.appendChild(emailItem);
+            emailList.appendChild(item);
         });
-        
-        // Add event listeners to unpin buttons
+
         const unpinButtons = document.getElementsByClassName('unpin-btn');
         Array.from(unpinButtons).forEach(button => {
             button.addEventListener('click', function() {
@@ -63,36 +55,27 @@ function loadPinnedEmails() {
 }
 
 function unpinEmail(emailId) {
-    chrome.storage.local.get(['pinnedEmails'], function(result) {
+    chrome.storage.local.get(['pinnedEmails'], (result) => {
         const pinnedEmails = result.pinnedEmails || [];
-        const updatedEmails = pinnedEmails.filter(email => email.id !== emailId);
-        
-        chrome.storage.local.set({pinnedEmails: updatedEmails}, function() {
-            // Notify content script about the change
-            chrome.tabs.query({url: "*://mail.google.com/*"}, function(tabs) {
+        const updated = pinnedEmails.filter(e => e.id !== emailId);
+        chrome.storage.local.set({ pinnedEmails: updated }, () => {
+            chrome.tabs.query({url: "*://mail.google.com/*"}, (tabs) => {
                 if (tabs.length > 0) {
-                    chrome.tabs.sendMessage(tabs[0].id, {
-                        action: "emailUnpinned",
-                        emailId: emailId
-                    });
+                    chrome.tabs.sendMessage(tabs[0].id, {action: "emailUnpinned", emailId: emailId});
                 }
             });
-            
-            // Update the popup
-            loadPinnedEmails();
+            loadPinnedEmailsPopup();
         });
     });
 }
 
-function escapeHtml(unsafe) {
-    if (!unsafe) return '';
-    return unsafe
-        .toString()
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+function escapeHtml(text) {
+    if (!text) return '';
+    return text.replace(/&/g, "&amp;")
+               .replace(/</g, "&lt;")
+               .replace(/>/g, "&gt;")
+               .replace(/"/g, "&quot;")
+               .replace(/'/g, "&#039;");
 }
 
 function formatTime(timestamp) {
