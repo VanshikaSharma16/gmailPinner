@@ -78,8 +78,7 @@
     function handleMessage(request, sender, sendResponse) {
         if (request.action === "emailUnpinned") {
             const emailId = request.emailId;
-            console.log('Gmail Pin Extension: Unpinning email from popup', emailId);
-            unpinEmailById(emailId, true); // true indicates it's from popup
+            unpinEmailById(emailId);
             return true;
         }
         if (request.action === "updateRequested") {
@@ -105,7 +104,7 @@
             if (elements.length > 0) {
                 elements.forEach(el => {
                     // Only add elements that are definitely email rows
-                    if (isDefinitelyEmailRow(el)) {
+                    if (isDefinitelyEmailRow(el) && !el.querySelector('.gmail-pin-button')) {
                         rows.push(el);
                     }
                 });
@@ -326,7 +325,7 @@
     }
 
     // Unpin email by ID
-    function unpinEmailById(emailId, fromPopup = false) {
+    function unpinEmailById(emailId) {
         const index = pinnedEmails.findIndex(email => email.id === emailId);
         if (index >= 0) {
             pinnedEmails.splice(index, 1);
@@ -335,15 +334,9 @@
             // Find the email row and update it
             const emailRows = findEmailRows();
             const row = emailRows.find(row => row.getAttribute('data-email-id') === emailId);
-            
             if (row) {
                 updatePinButton(row);
                 updateEmailHighlight(row);
-                
-                // If unpinning from popup, also reorder emails
-                if (fromPopup) {
-                    reorderPinnedEmails();
-                }
             }
             
             // Re-process emails to ensure UI is updated
