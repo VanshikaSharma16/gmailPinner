@@ -4,101 +4,61 @@
     
     // Configuration
     const MAX_PINS = 5;
-    const CHECK_INTERVAL = 2000;
+    const CHECK_INTERVAL = 1500;
     
     // Add custom styles
     const styleElement = document.createElement('style');
     styleElement.textContent = `
-        .gmail-pin-container {
-            position: absolute;
-            left: -30px;
-            top: 50%;
-            transform: translateY(-50%);
-            z-index: 1000;
+        .gmail-pin-button {
+            display: inline-block;
             width: 24px;
             height: 24px;
-        }
-        .gmail-pin-icon {
-            width: 24px;
-            height: 24px;
+            margin-right: 12px;
             cursor: pointer;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            text-align: center;
+            line-height: 24px;
             font-size: 14px;
-            transition: all 0.2s ease;
             background-color: white;
             border: 1px solid #dadce0;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            transition: all 0.2s ease;
+            position: relative;
+            z-index: 1000;
+            vertical-align: middle;
         }
-        .gmail-pin-icon:hover {
+        .gmail-pin-button:hover {
             background-color: #f1f3f4;
             border-color: #9aa0a6;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
         }
-        .gmail-pin-icon.pinned {
+        .gmail-pin-button.pinned {
             background-color: #fce8e6;
             color: #ea4335;
             border-color: #ea4335;
         }
-        .email-row-container {
-            position: relative;
-            margin-left: 38px !important;
-        }
-        .gmail-pin-icon::before {
+        .gmail-pin-button::before {
             content: "📌";
-            font-size: 14px;
-            line-height: 1;
         }
-        
-        /* Force the pin button to be visible and clickable */
-        .gmail-pin-icon {
-            pointer-events: auto !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-        }
-        
-        /* Ensure our pin button is above Gmail's native buttons */
-        .gmail-pin-container {
-            z-index: 1002 !important;
-        }
-        
-        /* Push Gmail's buttons to the right */
-        div[role="button"][aria-label*="Select"],
-        div[role="button"][aria-label*="Move"],
-        div[data-tooltip*="Select"],
-        div[data-tooltip*="Move"] {
-            margin-left: 28px !important;
-        }
-        
-        /* Make sure our pin is always visible */
-        .gmail-pin-icon {
-            display: flex !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        }
-        
-        /* Highlight pinned emails */
-        .pinned-email-highlight {
+        .pinned-email {
             background-color: #fce8e6 !important;
             border-left: 3px solid #ea4335 !important;
         }
         
-        /* Make sure pinned emails stay at the top */
-        .pinned-email-container {
-            order: -1 !important;
+        /* Make pin button more visible */
+        .gmail-pin-button {
+            opacity: 1 !important;
+            visibility: visible !important;
+            pointer-events: auto !important;
         }
     `;
     document.head.appendChild(styleElement);
 
     // State
     let pinnedEmails = [];
-    let observer = null;
+    let isProcessing = false;
 
     // Initialize
     function init() {
+        console.log('Gmail Pin Extension: Initializing');
         loadPinnedEmails();
         startObserver();
         startIntervalCheck();
@@ -111,19 +71,13 @@
     function loadPinnedEmails() {
         chrome.storage.local.get(['pinnedEmails'], function(result) {
             pinnedEmails = result.pinnedEmails || [];
-            // Sort by timestamp to maintain order
-            pinnedEmails.sort((a, b) => a.timestamp - b.timestamp);
+            console.log('Gmail Pin Extension: Loaded', pinnedEmails.length, 'pinned emails');
             processEmails();
-            
-            // Reorder pinned emails to top on initial load
-            setTimeout(reorderPinnedEmails, 1000);
         });
     }
 
     // Save pinned emails to storage
     function savePinnedEmails() {
-        // Sort by timestamp before saving
-        pinnedEmails.sort((a, b) => a.timestamp - b.timestamp);
         chrome.storage.local.set({pinnedEmails: pinnedEmails});
     }
 
@@ -131,7 +85,8 @@
     function handleMessage(request, sender, sendResponse) {
         if (request.action === "emailUnpinned") {
             const emailId = request.emailId;
-            unpinEmailById(emailId);
+            console.log('Gmail Pin Extension: Unpinning email from popup', emailId);
+            unpinEmailById(emailId, true);
             return true;
         }
         if (request.action === "updateRequested") {
@@ -144,133 +99,144 @@
     function findEmailRows() {
         // Try multiple selectors for different Gmail layouts
         const selectors = [
+            'tr.zA', 
             'tr[class*="zA"]', 
             'div[role="main"] tr[role="row"]',
-            'div[data-message-id]',
-            'div[role="listitem"]'
+            'div[gh="tl"] div[role="listitem"]',
+            'div[data-tooltip][data-tooltip*="Subject:"]',
+            // More specific selectors
+            'div[gh="tl"] > div > div > div',
+            'div[role="main"] > div > div > div > div'
         ];
         
         let rows = [];
         for (const selector of selectors) {
             const elements = document.querySelectorAll(selector);
             if (elements.length > 0) {
-                rows = Array.from(elements);
-                break;
+                elements.forEach(el => {
+                    // Check if this looks like an email row (not too tall, has certain classes)
+                    const style = window.getComputedStyle(el);
+                    const height = parseInt(style.height) || 0;
+                    
+                    if (height > 40 && height < 120 && !el.querySelector('.gmail-pin-button')) {
+                        rows.push(el);
+                    }
+                });
+                if (rows.length > 0) break;
             }
         }
         
         return rows;
     }
 
-    // Process all emails and add pin icons
+    // Process all emails and add pin buttons
     function processEmails() {
-        const emailRows = findEmailRows();
+        if (isProcessing) return;
+        isProcessing = true;
         
-        emailRows.forEach(row => {
-            // Skip if already processed
-            if (row.hasAttribute('data-pin-processed')) {
-                updatePinIcon(row);
+        try {
+            const emailRows = findEmailRows();
+            console.log('Gmail Pin Extension: Found', emailRows.length, 'email rows');
+            
+            emailRows.forEach(row => {
+                // Get or create email ID
+                let emailId = row.getAttribute('data-email-id');
+                if (!emailId) {
+                    emailId = generateEmailId(row);
+                    row.setAttribute('data-email-id', emailId);
+                }
+                
+                // Add pin button if not exists
+                if (!row.querySelector('.gmail-pin-button')) {
+                    addPinButton(row, emailId);
+                }
+                
+                // Update pin button and highlight
+                updatePinButton(row);
                 updateEmailHighlight(row);
-                return;
-            }
+            });
             
-            // Mark as processed
-            row.setAttribute('data-pin-processed', 'true');
-            
-            // Wrap the row for positioning
-            if (!row.parentElement.classList.contains('email-row-container')) {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'email-row-container';
-                row.parentNode.insertBefore(wrapper, row);
-                wrapper.appendChild(row);
-            }
-            
-            // Get or create email ID
-            let emailId = row.getAttribute('data-email-id');
-            if (!emailId) {
-                emailId = generateEmailId(row);
-                row.setAttribute('data-email-id', emailId);
-            }
-            
-            // Add pin icon
-            addPinIcon(row, emailId);
-            
-            // Update highlight based on pin status
-            updateEmailHighlight(row);
-        });
-        
-        // Reorder pinned emails to top
-        reorderPinnedEmails();
+            // Reorder pinned emails to top
+            reorderPinnedEmails();
+        } catch (error) {
+            console.error('Gmail Pin Extension: Error processing emails', error);
+        } finally {
+            isProcessing = false;
+        }
     }
 
     // Generate a unique ID for an email
     function generateEmailId(row) {
-        const subject = row.querySelector('[data-tooltip]')?.textContent || 
-                       row.querySelector('[aria-label]')?.getAttribute('aria-label') || 
-                       '';
-        const sender = row.querySelector('[email]')?.getAttribute('email') || 
-                     row.querySelector('[data-hovercard-id]')?.getAttribute('data-hovercard-id') || 
-                     '';
-        return `email-${subject}-${sender}-${Date.now()}`;
+        // Create ID based on content and timestamp
+        const text = row.textContent || '';
+        const shortText = text.length > 50 ? text.substring(0, 50) : text;
+        return `email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     }
 
-    // Add pin icon to email row
-    function addPinIcon(row, emailId) {
-        // Remove any existing pin icon first
-        const existingPin = row.querySelector('.gmail-pin-icon');
-        if (existingPin) {
-            existingPin.remove();
+    // Add pin button to email row
+    function addPinButton(row, emailId) {
+        try {
+            // Try to find the best place to put the pin button
+            const possibleContainers = [
+                row.querySelector('td:first-child'),
+                row.querySelector('div:first-child'),
+                row.querySelector('[role="gridcell"]:first-child'),
+                row
+            ];
+            
+            let targetElement = null;
+            for (const element of possibleContainers) {
+                if (element && element.offsetParent !== null) {
+                    targetElement = element;
+                    break;
+                }
+            }
+            
+            if (!targetElement) return;
+            
+            // Create pin button
+            const pinButton = document.createElement('div');
+            pinButton.className = 'gmail-pin-button';
+            pinButton.setAttribute('data-email-id', emailId);
+            pinButton.setAttribute('title', 'Pin this email');
+            
+            // Set initial state
+            updatePinButtonState(pinButton, emailId);
+            
+            // Add click handler
+            pinButton.addEventListener('click', function(e) {
+                e.stopPropagation();
+                e.preventDefault();
+                togglePinEmail(row, emailId);
+            });
+            
+            // Insert at the beginning
+            if (targetElement.firstChild) {
+                targetElement.insertBefore(pinButton, targetElement.firstChild);
+            } else {
+                targetElement.appendChild(pinButton);
+            }
+        } catch (error) {
+            console.error('Gmail Pin Extension: Error adding pin button', error);
         }
-        
-        // Check if container already exists
-        let pinContainer = row.querySelector('.gmail-pin-container');
-        if (!pinContainer) {
-            // Create pin container
-            pinContainer = document.createElement('div');
-            pinContainer.className = 'gmail-pin-container';
-            row.appendChild(pinContainer);
-        } else {
-            // Clear existing container
-            pinContainer.innerHTML = '';
-        }
-        
-        // Create pin icon
-        const pinIcon = document.createElement('div');
-        pinIcon.className = 'gmail-pin-icon';
-        pinIcon.setAttribute('data-email-id', emailId);
-        
-        // Set initial state
-        updatePinIconState(pinIcon, emailId);
-        
-        // Add click handler - make sure it's properly bound
-        pinIcon.addEventListener('click', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            togglePinEmail(row, emailId);
-            return false;
-        });
-        
-        // Add to container
-        pinContainer.appendChild(pinIcon);
     }
 
-    // Update pin icon visual state
-    function updatePinIconState(pinIcon, emailId) {
+    // Update pin button visual state
+    function updatePinButtonState(pinButton, emailId) {
         const isPinned = pinnedEmails.some(email => email.id === emailId);
         if (isPinned) {
-            pinIcon.classList.add('pinned');
+            pinButton.classList.add('pinned');
         } else {
-            pinIcon.classList.remove('pinned');
+            pinButton.classList.remove('pinned');
         }
     }
 
-    // Update pin icon
-    function updatePinIcon(row) {
+    // Update pin button
+    function updatePinButton(row) {
         const emailId = row.getAttribute('data-email-id');
-        const pinIcon = row.querySelector('.gmail-pin-icon');
-        if (pinIcon) {
-            updatePinIconState(pinIcon, emailId);
+        const pinButton = row.querySelector('.gmail-pin-button');
+        if (pinButton) {
+            updatePinButtonState(pinButton, emailId);
         }
     }
 
@@ -280,15 +246,13 @@
         const isPinned = pinnedEmails.some(email => email.id === emailId);
         
         if (isPinned) {
-            row.classList.add('pinned-email-highlight');
-            if (row.parentElement) {
-                row.parentElement.classList.add('pinned-email-container');
-            }
+            row.classList.add('pinned-email');
+            row.style.backgroundColor = '#fce8e6';
+            row.style.borderLeft = '3px solid #ea4335';
         } else {
-            row.classList.remove('pinned-email-highlight');
-            if (row.parentElement) {
-                row.parentElement.classList.remove('pinned-email-container');
-            }
+            row.classList.remove('pinned-email');
+            row.style.backgroundColor = '';
+            row.style.borderLeft = '';
         }
     }
 
@@ -299,130 +263,153 @@
         if (index >= 0) {
             // Unpin the email
             pinnedEmails.splice(index, 1);
+            console.log('Email unpinned:', emailId);
+            
+            // Update UI immediately
+            updatePinButton(row);
+            updateEmailHighlight(row);
         } else {
             // Pin the email (if under limit)
             if (pinnedEmails.length >= MAX_PINS) {
-                // Remove the oldest pinned email
-                const oldestPin = pinnedEmails.shift();
-                
-                // Find and unpin the oldest email visually
-                const oldestRow = findEmailRowById(oldestPin.id);
-                if (oldestRow) {
-                    updatePinIcon(oldestRow);
-                    updateEmailHighlight(oldestRow);
-                }
+                alert(`You can only pin up to ${MAX_PINS} emails. Unpin one first to pin this email.`);
+                return;
             }
             
             // Get email details
-            const subject = row.querySelector('[data-tooltip]')?.textContent || 
-                           row.querySelector('[aria-label]')?.getAttribute('aria-label') || 
-                           'No subject';
-            const sender = row.querySelector('[email]')?.getAttribute('email') || 
-                         row.querySelector('[data-hovercard-id]')?.getAttribute('data-hovercard-id') || 
-                         'Unknown sender';
+            const subjectElement = row.querySelector('.bog') || 
+                                 row.querySelector('[data-tooltip]') ||
+                                 row.querySelector('[aria-label]');
+            const subject = subjectElement ? subjectElement.textContent : 'No subject';
             
-            pinnedEmails.push({
+            const senderElement = row.querySelector('.yW') || 
+                                row.querySelector('.zF') ||
+                                row.querySelector('[email]');
+            const sender = senderElement ? senderElement.textContent : 'Unknown sender';
+            
+            pinnedEmails.unshift({
                 id: emailId,
                 subject: subject,
                 sender: sender,
                 timestamp: Date.now()
             });
+            console.log('Email pinned:', emailId);
+            
+            // Update UI immediately
+            updatePinButton(row);
+            updateEmailHighlight(row);
+            
+            // Move to top immediately
+            moveToTop(row);
         }
         
-        // Save and update UI
+        // Save and notify
         savePinnedEmails();
-        updatePinIcon(row);
-        updateEmailHighlight(row);
-        reorderPinnedEmails();
-        
-        // Notify popup
         chrome.runtime.sendMessage({action: "updatePopup"});
     }
 
-    // Find email row by ID
-    function findEmailRowById(emailId) {
-        const emailRows = findEmailRows();
-        return emailRows.find(row => row.getAttribute('data-email-id') === emailId);
+    // Move email to top immediately
+    function moveToTop(row) {
+        const container = findEmailContainer();
+        if (!container || !row.parentNode) return;
+        
+        try {
+            // Move to the very top
+            if (row.parentNode === container) {
+                container.insertBefore(row, container.firstChild);
+            } else {
+                // If row is wrapped, move the wrapper instead
+                const wrapper = row.closest('.email-wrapper') || row.parentElement;
+                if (wrapper && wrapper.parentNode === container) {
+                    container.insertBefore(wrapper, container.firstChild);
+                }
+            }
+        } catch (error) {
+            console.error('Gmail Pin Extension: Error moving email to top', error);
+        }
     }
 
     // Unpin email by ID
-    function unpinEmailById(emailId) {
+    function unpinEmailById(emailId, fromPopup = false) {
         const index = pinnedEmails.findIndex(email => email.id === emailId);
         if (index >= 0) {
             pinnedEmails.splice(index, 1);
             savePinnedEmails();
+            
+            // Find the email row and update it
+            const emailRows = findEmailRows();
+            const row = emailRows.find(row => row.getAttribute('data-email-id') === emailId);
+            
+            if (row) {
+                updatePinButton(row);
+                updateEmailHighlight(row);
+            }
+            
+            // Re-process emails to ensure UI is updated
             processEmails();
         }
     }
 
-    // Reorder emails to put pinned ones at the top in correct order
+    // Reorder emails to put pinned ones at the top
     function reorderPinnedEmails() {
-        const emailRows = findEmailRows();
-        const pinnedIds = pinnedEmails.map(email => email.id);
-        
-        // Get the container that holds all emails
-        const emailContainer = findEmailContainer();
-        if (!emailContainer) return;
-        
-        // Collect pinned rows and their containers in the correct order
-        const pinnedContainers = [];
-        pinnedIds.forEach(emailId => {
-            const row = emailRows.find(row => row.getAttribute('data-email-id') === emailId);
-            if (row) {
-                const container = row.closest('.email-row-container') || row.parentElement;
-                pinnedContainers.push(container);
-            }
-        });
-        
-        // Move pinned containers to top in correct order
-        pinnedContainers.reverse().forEach(container => {
-            if (container && container.parentElement === emailContainer) {
-                emailContainer.insertBefore(container, emailContainer.firstChild);
-            }
-        });
+        try {
+            const emailRows = findEmailRows();
+            const pinnedIds = pinnedEmails.map(email => email.id);
+            
+            const container = findEmailContainer();
+            if (!container) return;
+            
+            // Move pinned emails to top
+            pinnedEmails.forEach(pinnedEmail => {
+                const row = emailRows.find(row => row.getAttribute('data-email-id') === pinnedEmail.id);
+                if (row && row.parentNode === container) {
+                    container.insertBefore(row, container.firstChild);
+                }
+            });
+        } catch (error) {
+            console.error('Gmail Pin Extension: Error reordering emails', error);
+        }
     }
 
     // Find the container that holds all emails
     function findEmailContainer() {
         const selectors = [
-            'div[role="main"] > div > div > div:last-child',
-            'div[gh="tl"] > div:last-child',
-            'div[role="main"] > div:last-child',
-            'table[role="grid"]'
+            'div[gh="tl"]',
+            'div[role="main"]',
+            'table[role="grid"]',
+            'tbody',
+            'div[jscontroller]',
+            'div[jsmodel]'
         ];
         
         for (const selector of selectors) {
             const container = document.querySelector(selector);
-            if (container) {
+            if (container && container.children.length > 3) {
                 return container;
             }
         }
         
+        // Fallback to body if no container found
         return document.body;
     }
 
     // Start MutationObserver to detect new emails
     function startObserver() {
-        const targetNode = document.querySelector('div[role="main"]') || document.body;
-        
-        if (targetNode && !observer) {
-            observer = new MutationObserver(function(mutations) {
-                let shouldProcess = false;
-                
-                for (const mutation of mutations) {
-                    if (mutation.addedNodes.length > 0) {
-                        shouldProcess = true;
-                        break;
-                    }
-                }
-                
-                if (shouldProcess) {
-                    setTimeout(processEmails, 500);
-                }
-            });
+        const observer = new MutationObserver(function(mutations) {
+            let shouldProcess = false;
             
-            observer.observe(targetNode, { childList: true, subtree: true });
-        }
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    shouldProcess = true;
+                    break;
+                }
+            }
+            
+            if (shouldProcess) {
+                setTimeout(processEmails, 300);
+            }
+        });
+        
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     // Start interval check as fallback
@@ -434,6 +421,7 @@
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
-        init();
+        // Wait a bit longer for Gmail to fully load
+        setTimeout(init, 4000);
     }
 })();
