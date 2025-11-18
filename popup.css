@@ -86,6 +86,11 @@ body {
 
 .email-info {
     flex: 1;
+    cursor: pointer;
+}
+
+.email-info:hover {
+    opacity: 0.8;
 }
 
 .email-subject {
